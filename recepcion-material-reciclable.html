@@ -48,7 +48,8 @@ const { useState, useEffect, useMemo, useRef } = React;
    Pega aquí la URL de tu Apps Script (termina en /exec) y el TOKEN que
    configuraste en codigo-google-apps-script.gs. Ver conectar-google-sheets.md.
    ========================================================================= */
-const SHEETS_URL = "https://script.google.com/u/0/home/projects/1ufPp20s5zE0dHGYCyp8IVphh2_1SZSXL6mMunJ7pDaOUdG6xAbvQ3b2n/edit";
+const ID_IMPLEMENTATION = "AKfycbyVAANf3sFhXjUEzt8SYObpRjnBiK3rvpb6vAji_L1UYQl889ngmOCL_gd9m31hTFKH";   
+const SHEETS_URL = "https://script.google.com/macros/s/AKfycbyVAANf3sFhXjUEzt8SYObpRjnBiK3rvpb6vAji_L1UYQl889ngmOCL_gd9m31hTFKH/exec";
 const SHEETS_TOKEN = "tiendaverde2026secreto";
 const SHEETS_CONFIGURED = /^https?:\/\//.test(SHEETS_URL);
 
@@ -1002,6 +1003,7 @@ function App(){
       setProviders(data.providers||[]);
       setRecords((data.records||[]).map(r => ({
         ...r,
+        fecha: String(r.fecha||"").slice(0,10),
         peso: Number(r.peso)||0,
         precioKg: Number(r.precioKg)||0,
         pagado: r.pagado===true||r.pagado==="true"||r.pagado==="TRUE",
@@ -1019,6 +1021,7 @@ function App(){
   useEffect(() => { if(!toast) return; const t=setTimeout(()=>setToast(null),2600); return ()=>clearTimeout(t); }, [toast]);
 
   const providersById = useMemo(() => Object.fromEntries(providers.map(p=>[p.id,p])), [providers]);
+  const sortedProviders = useMemo(() => [...providers].sort((a,b) => String(a.nombre||"").localeCompare(String(b.nombre||""),"es",{sensitivity:"base"})), [providers]);
 
   const postToSheets = async (payload) => {
     const res = await fetch(SHEETS_URL, {
@@ -1118,7 +1121,7 @@ function App(){
         </div>
         <StatsPanel stats={stats} />
         <div className="grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-5 mt-5">
-          <RecepcionForm materials={materials} providers={providers} onSubmit={addRecord} onCreateProvider={createProvider} />
+          <RecepcionForm materials={materials} providers={sortedProviders} onSubmit={addRecord} onCreateProvider={createProvider} />
           <HistoryPanel records={records} providersById={providersById} materials={materials} onTogglePagado={togglePagado} onExport={()=>setExportOpen(true)} onReload={()=>cargarDesdeSheets({ initial:false })} refreshing={refreshing} updatingIds={updatingIds} />
         </div>
       </main>
