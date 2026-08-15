@@ -1,0 +1,1157 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Recepción · Material Reciclable</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#F5F7F2; --surface:#FFFFFF; --border:#E1E7DA;
+    --ink:#1F2A22; --ink-muted:#5C6B5E;
+    --primary:#2F6B4F; --primary-dark:#1F4D38; --sage:#8FAE87;
+    --amber:#B9832F; --danger:#B4483A;
+  }
+  html{ background:var(--bg); }
+  body{
+    font-family:'Inter',sans-serif; color:var(--ink);
+    background:
+      radial-gradient(circle at 100% 0%, rgba(143,174,135,0.14), transparent 45%),
+      radial-gradient(circle at 0% 100%, rgba(47,107,79,0.08), transparent 40%),
+      var(--bg);
+    min-height:100vh;
+  }
+  .font-display{ font-family:'Space Grotesk',sans-serif; }
+  .font-mono{ font-family:'JetBrains Mono',monospace; }
+  .scale-display{ background:linear-gradient(180deg,#16241C 0%, #0F1B14 100%); box-shadow: inset 0 2px 6px rgba(0,0,0,0.4), 0 1px 0 rgba(255,255,255,0.04); }
+  .scale-digits{ color:#8FE3B0; text-shadow:0 0 8px rgba(143,227,176,0.55), 0 0 2px rgba(143,227,176,0.8); font-variant-numeric: tabular-nums; }
+  .scale-digits.dim{ color:#3E5A48; text-shadow:none; }
+  .notch{ background-image: repeating-linear-gradient(90deg, #C9D3C0 0 2px, transparent 2px 10px); height:2px; }
+  ::-webkit-scrollbar{ height:8px; width:8px; } ::-webkit-scrollbar-thumb{ background:#CBD6C3; border-radius:99px; } ::-webkit-scrollbar-track{ background:transparent; }
+  input:focus-visible, select:focus-visible, button:focus-visible{ outline:2px solid var(--primary); outline-offset:2px; }
+  @keyframes riseIn{ from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:translateY(0);} } .rise-in{ animation: riseIn .28s ease-out both; }
+  @keyframes popIn{ from{opacity:0; transform:scale(.95);} to{opacity:1; transform:scale(1);} } .pop-in{ animation: popIn .16s ease-out both; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useMemo, useRef } = React;
+
+/* =========================================================================
+   CONEXIÓN A GOOGLE SHEETS — la base de datos real de la app.
+   Pega aquí la URL de tu Apps Script (termina en /exec) y el TOKEN que
+   configuraste en codigo-google-apps-script.gs. Ver conectar-google-sheets.md.
+   ========================================================================= */
+const SHEETS_URL = "https://script.google.com/u/0/home/projects/1ufPp20s5zE0dHGYCyp8IVphh2_1SZSXL6mMunJ7pDaOUdG6xAbvQ3b2n/edit";
+const SHEETS_TOKEN = "tiendaverde2026secreto";
+const SHEETS_CONFIGURED = /^https?:\/\//.test(SHEETS_URL);
+
+const FALLBACK_MATERIAL = { id:"desconocido", nombre:"Material sin definir", rate:0, color:"#9AA79A" };
+const findMaterial = (materials, id) => materials.find(m => m.id === id) || FALLBACK_MATERIAL;
+
+/* =========================================================================
+   DATOS DE MIGRACIÓN — catálogo y recepciones reales que existían en la
+   versión anterior de esta app (con datos quemados en el front).
+   NO se usan para mostrar nada: solo sirven para el botón "Cargar catálogo
+   y datos históricos" que aparece una única vez, si tu Google Sheet está
+   vacío, para no perder este historial al migrar.
+   ========================================================================= */
+const DEFAULT_MATERIALS = [
+  { id:"carton",   nombre:"Cartón",                    rate:400,  color:"#8C6A3F" },
+  { id:"vidrio",   nombre:"Vidrio",                    rate:50,   color:"#3F8F82" },
+  { id:"metal",    nombre:"Aluminio",                  rate:4000, color:"#7C7F73" },
+  { id:"archivo",  nombre:"Archivo",                   rate:400,  color:"#A9793C" },
+  { id:"bolsa",    nombre:"Plástico (Bolsa)",          rate:200,  color:"#6FA8A0" },
+  { id:"pet",      nombre:"Plástico (PET)",            rate:400,  color:"#4C7A93" },
+  { id:"pasta",    nombre:"Plástico (Soplado/Pasta)",  rate:350,  color:"#B97A46" },
+  { id:"aceite",   nombre:"Tarros de aceite",          rate:100,  color:"#C2A15C" },
+  { id:"chatarra", nombre:"Chatarra",                  rate:600,  color:"#8A5A44" },
+  { id:"revuelto", nombre:"Revuelto",                  rate:300,  color:"#6B8E5A" },
+  { id:"kraft",    nombre:"Kraft",                     rate:0,    color:"#C7A468", precioPendiente:true },
+];
+
+const DEFAULT_PROVIDERS = [
+  { id:"p_gonzalo", nombre:"Gonzalo", telefono:"", materialFrecuente:"" },
+  { id:"p_casa-agraria", nombre:"Casa Agraria", telefono:"", materialFrecuente:"" },
+  { id:"p_adriana", nombre:"Adriana", telefono:"", materialFrecuente:"" },
+  { id:"p_menar", nombre:"Menar", telefono:"", materialFrecuente:"" },
+  { id:"p_exito", nombre:"Éxito", telefono:"", materialFrecuente:"" },
+  { id:"p_morales", nombre:"Morales", telefono:"", materialFrecuente:"" },
+  { id:"p_vanessa-enfermera", nombre:"Vanessa Enfermera", telefono:"", materialFrecuente:"" },
+  { id:"p_asceneth", nombre:"Asceneth", telefono:"", materialFrecuente:"" },
+  { id:"p_adelaida", nombre:"Adelaida", telefono:"", materialFrecuente:"" },
+  { id:"p_sofia-morales", nombre:"Sofia Morales", telefono:"", materialFrecuente:"" },
+  { id:"p_ana-morales", nombre:"Ana Morales", telefono:"", materialFrecuente:"" },
+  { id:"p_jonatan", nombre:"Jonatan", telefono:"", materialFrecuente:"" },
+  { id:"p_oscar-franco", nombre:"Oscar Franco", telefono:"", materialFrecuente:"" },
+  { id:"p_cabeto", nombre:"Cabeto", telefono:"", materialFrecuente:"" },
+  { id:"p_lorena-fresas", nombre:"Lorena Fresas", telefono:"", materialFrecuente:"" },
+  { id:"p_marcela", nombre:"Marcela", telefono:"", materialFrecuente:"" },
+  { id:"p_liliana-garcia", nombre:"Liliana Garcia", telefono:"", materialFrecuente:"" },
+  { id:"p_dna-johana", nombre:"Dña Johana", telefono:"", materialFrecuente:"" },
+  { id:"p_compra", nombre:"Compra", telefono:"", materialFrecuente:"" },
+  { id:"p_ana-maria", nombre:"Ana Maria", telefono:"", materialFrecuente:"" },
+  { id:"p_casa", nombre:"Casa", telefono:"", materialFrecuente:"" },
+  { id:"p_sheily", nombre:"Sheily", telefono:"", materialFrecuente:"" },
+  { id:"p_rancheria", nombre:"Rancheria", telefono:"", materialFrecuente:"" },
+  { id:"p_naidu", nombre:"Naidu", telefono:"", materialFrecuente:"" },
+  { id:"p_ingrid", nombre:"Ingrid", telefono:"", materialFrecuente:"" },
+  { id:"p_melva", nombre:"Melva", telefono:"", materialFrecuente:"" },
+  { id:"p_yuri", nombre:"Yuri", telefono:"", materialFrecuente:"" },
+  { id:"p_dona-johana", nombre:"Doña Johana", telefono:"", materialFrecuente:"" },
+  { id:"p_erlinda-billar", nombre:"Erlinda Billar", telefono:"", materialFrecuente:"" },
+  { id:"p_yoana-tienda", nombre:"Yoana Tienda", telefono:"", materialFrecuente:"" },
+  { id:"p_diomedes", nombre:"Diomedes", telefono:"", materialFrecuente:"" },
+  { id:"p_diony", nombre:"Diony", telefono:"", materialFrecuente:"" },
+  { id:"p_mujer-topo", nombre:"Mujer Topo", telefono:"", materialFrecuente:"" },
+  { id:"p_corrales", nombre:"Corrales", telefono:"", materialFrecuente:"" },
+  { id:"p_sra-morales", nombre:"Sra Morales", telefono:"", materialFrecuente:"" },
+  { id:"p_las-palmas", nombre:"Las Palmas", telefono:"", materialFrecuente:"" },
+  { id:"p_peaje", nombre:"Peaje", telefono:"", materialFrecuente:"" },
+  { id:"p_saulo-tio-cabeto", nombre:"Saulo Tio Cabeto", telefono:"", materialFrecuente:"" },
+  { id:"p_patron", nombre:"Patron", telefono:"", materialFrecuente:"" },
+  { id:"p_carcel-silvia", nombre:"Carcel Silvia", telefono:"", materialFrecuente:"" },
+  { id:"p_jorge-ferretaria", nombre:"Jorge Ferretaria", telefono:"", materialFrecuente:"" },
+  { id:"p_juan-pablo-cabrera", nombre:"Juan Pablo Cabrera", telefono:"", materialFrecuente:"" },
+  { id:"p_dona-gloria", nombre:"Doña Gloria", telefono:"", materialFrecuente:"" },
+  { id:"p_adrian-bicicleteria", nombre:"Adrian Bicicleteria", telefono:"", materialFrecuente:"" },
+  { id:"p_la-leona", nombre:"La Leona", telefono:"", materialFrecuente:"" },
+  { id:"p_adrianan", nombre:"Adrianan", telefono:"", materialFrecuente:"" },
+  { id:"p_senora-esperanza", nombre:"Señora Esperanza", telefono:"", materialFrecuente:"" },
+];
+
+function DEFAULT_RECORDS(){
+  return [
+    { id: crypto.randomUUID(), fecha:"2026-05-11", providerId:"p_gonzalo", materialId:"carton", peso:134.75, precioKg:400, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-11", providerId:"p_gonzalo", materialId:"chatarra", peso:103.2, precioKg:600, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-11", providerId:"p_gonzalo", materialId:"metal", peso:2.25, precioKg:4000, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-12", providerId:"p_casa-agraria", materialId:"carton", peso:104.4, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-12", providerId:"p_adriana", materialId:"pet", peso:13.4, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-12", providerId:"p_menar", materialId:"carton", peso:5.15, precioKg:350, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-12", providerId:"p_menar", materialId:"carton", peso:6.2, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-12", providerId:"p_exito", materialId:"pet", peso:6.25, precioKg:0, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-12", providerId:"p_exito", materialId:"vidrio", peso:91.35, precioKg:0, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-12", providerId:"p_morales", materialId:"chatarra", peso:302.1, precioKg:300, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-12", providerId:"p_morales", materialId:"carton", peso:93.7, precioKg:400, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-12", providerId:"p_morales", materialId:"vidrio", peso:92.1, precioKg:50, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-12", providerId:"p_morales", materialId:"pasta", peso:138.6, precioKg:400, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-13", providerId:"p_vanessa-enfermera", materialId:"carton", peso:27.95, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_asceneth", materialId:"carton", peso:83.95, precioKg:400, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_asceneth", materialId:"pasta", peso:12.98, precioKg:350, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_asceneth", materialId:"pet", peso:37.25, precioKg:400, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_asceneth", materialId:"metal", peso:5.1, precioKg:4000, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_asceneth", materialId:"chatarra", peso:18.2, precioKg:300, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_adelaida", materialId:"revuelto", peso:16.05, precioKg:200, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_adelaida", materialId:"pet", peso:61.05, precioKg:400, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_adelaida", materialId:"vidrio", peso:190.85, precioKg:50, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_adelaida", materialId:"carton", peso:21.35, precioKg:400, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_sofia-morales", materialId:"archivo", peso:166.0, precioKg:400, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_sofia-morales", materialId:"revuelto", peso:54.6, precioKg:250, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_sofia-morales", materialId:"pasta", peso:221.05, precioKg:350, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_sofia-morales", materialId:"metal", peso:1.6, precioKg:4000, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_ana-morales", materialId:"carton", peso:304.15, precioKg:400, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_jonatan", materialId:"carton", peso:117.1, precioKg:400, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_oscar-franco", materialId:"pet", peso:10.45, precioKg:350, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_oscar-franco", materialId:"vidrio", peso:8.5, precioKg:50, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_cabeto", materialId:"vidrio", peso:43.15, precioKg:50, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_cabeto", materialId:"pet", peso:2.25, precioKg:400, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_cabeto", materialId:"revuelto", peso:1.25, precioKg:200, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_cabeto", materialId:"carton", peso:14.15, precioKg:400, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_adriana", materialId:"carton", peso:10.0, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_adriana", materialId:"vidrio", peso:20.35, precioKg:50, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_adriana", materialId:"pet", peso:10.2, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_adriana", materialId:"metal", peso:2.1, precioKg:4000, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_lorena-fresas", materialId:"vidrio", peso:2.0, precioKg:50, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_lorena-fresas", materialId:"pasta", peso:14.0, precioKg:300, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_marcela", materialId:"vidrio", peso:12.0, precioKg:50, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_marcela", materialId:"carton", peso:5.0, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_marcela", materialId:"chatarra", peso:19.0, precioKg:300, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_marcela", materialId:"revuelto", peso:18.0, precioKg:300, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_liliana-garcia", materialId:"metal", peso:2.1, precioKg:4000, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_dna-johana", materialId:"archivo", peso:15.0, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_dna-johana", materialId:"carton", peso:12.0, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_dna-johana", materialId:"revuelto", peso:5.0, precioKg:300, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_compra", materialId:"pet", peso:17.0, precioKg:300, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_liliana-garcia", materialId:"revuelto", peso:8.26, precioKg:300, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_ana-maria", materialId:"pet", peso:4.25, precioKg:350, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_casa", materialId:"carton", peso:5.1, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_casa", materialId:"pasta", peso:3.7, precioKg:200, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_casa", materialId:"vidrio", peso:2.2, precioKg:50, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_casa", materialId:"metal", peso:1.0, precioKg:4000, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_sheily", materialId:"revuelto", peso:1.0, precioKg:25400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_rancheria", materialId:"revuelto", peso:1.0, precioKg:37562, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_naidu", materialId:"revuelto", peso:1.0, precioKg:20215, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_ingrid", materialId:"carton", peso:10.2, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_melva", materialId:"vidrio", peso:45.0, precioKg:50, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_melva", materialId:"carton", peso:15.0, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_yuri", materialId:"metal", peso:105.0, precioKg:4500, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_adriana", materialId:"metal", peso:1.0, precioKg:4000, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_adriana", materialId:"revuelto", peso:1.65, precioKg:200, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_adriana", materialId:"carton", peso:9.65, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_adriana", materialId:"pet", peso:20.1, precioKg:350, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_adriana", materialId:"vidrio", peso:2.45, precioKg:50, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_adriana", materialId:"archivo", peso:5.5, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_melva", materialId:"carton", peso:59.05, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_melva", materialId:"pet", peso:4.55, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_melva", materialId:"revuelto", peso:10.9, precioKg:200, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_melva", materialId:"vidrio", peso:12.8, precioKg:50, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_menar", materialId:"carton", peso:8.65, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_dona-johana", materialId:"carton", peso:6.05, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_dona-johana", materialId:"pet", peso:1.9, precioKg:350, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_erlinda-billar", materialId:"carton", peso:38.5, precioKg:400, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_erlinda-billar", materialId:"vidrio", peso:74.55, precioKg:50, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_erlinda-billar", materialId:"metal", peso:1.95, precioKg:4000, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_sheily", materialId:"revuelto", peso:15.0, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_casa-agraria", materialId:"carton", peso:35.6, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_yoana-tienda", materialId:"archivo", peso:10.25, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_yoana-tienda", materialId:"pet", peso:2.45, precioKg:350, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_yoana-tienda", materialId:"chatarra", peso:7.8, precioKg:300, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_yoana-tienda", materialId:"bolsa", peso:11.8, precioKg:200, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_yoana-tienda", materialId:"vidrio", peso:8.4, precioKg:50, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_yoana-tienda", materialId:"metal", peso:4.95, precioKg:4000, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_yoana-tienda", materialId:"carton", peso:24.55, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_yoana-tienda", materialId:"metal", peso:2.3, precioKg:4000, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_yoana-tienda", materialId:"bolsa", peso:5.35, precioKg:200, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_yoana-tienda", materialId:"pet", peso:1.8, precioKg:350, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_diomedes", materialId:"carton", peso:314.96, precioKg:450, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-15", providerId:"p_diomedes", materialId:"revuelto", peso:17.72, precioKg:350, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-20", providerId:"p_sheily", materialId:"revuelto", peso:16.0, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-20", providerId:"p_menar", materialId:"carton", peso:8.0, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-20", providerId:"p_melva", materialId:"revuelto", peso:8.45, precioKg:200, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-20", providerId:"p_melva", materialId:"pet", peso:3.7, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-20", providerId:"p_melva", materialId:"carton", peso:31.4, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-20", providerId:"p_melva", materialId:"vidrio", peso:18.85, precioKg:50, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-20", providerId:"p_melva", materialId:"metal", peso:4.7, precioKg:4000, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-20", providerId:"p_yuri", materialId:"vidrio", peso:145.4, precioKg:50, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-20", providerId:"p_diony", materialId:"carton", peso:35.65, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-20", providerId:"p_diony", materialId:"revuelto", peso:34.35, precioKg:200, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-20", providerId:"p_diony", materialId:"pasta", peso:1.7, precioKg:350, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-23", providerId:"p_mujer-topo", materialId:"carton", peso:45.8, precioKg:350, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-23", providerId:"p_mujer-topo", materialId:"pasta", peso:13.8, precioKg:300, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-23", providerId:"p_mujer-topo", materialId:"metal", peso:1.4, precioKg:3500, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-23", providerId:"p_mujer-topo", materialId:"revuelto", peso:9.8, precioKg:200, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-23", providerId:"p_corrales", materialId:"vidrio", peso:115.65, precioKg:50, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-23", providerId:"p_sheily", materialId:"revuelto", peso:13.65, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-23", providerId:"p_sra-morales", materialId:"carton", peso:357.9, precioKg:400, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-23", providerId:"p_sra-morales", materialId:"archivo", peso:132.5, precioKg:400, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-23", providerId:"p_sra-morales", materialId:"revuelto", peso:26.95, precioKg:200, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-27", providerId:"p_sheily", materialId:"revuelto", peso:12.9, precioKg:300, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-27", providerId:"p_sheily", materialId:"carton", peso:3.7, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-29", providerId:"p_las-palmas", materialId:"metal", peso:44.8, precioKg:4400, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-29", providerId:"p_las-palmas", materialId:"vidrio", peso:184.4, precioKg:50, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-29", providerId:"p_las-palmas", materialId:"chatarra", peso:47.0, precioKg:300, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-29", providerId:"p_las-palmas", materialId:"pasta", peso:8.9, precioKg:350, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-29", providerId:"p_las-palmas", materialId:"carton", peso:3.0, precioKg:400, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-29", providerId:"p_casa-agraria", materialId:"carton", peso:10.95, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-30", providerId:"p_peaje", materialId:"carton", peso:73.8, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-30", providerId:"p_peaje", materialId:"metal", peso:7.8, precioKg:4000, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-30", providerId:"p_peaje", materialId:"pasta", peso:88.15, precioKg:350, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-30", providerId:"p_peaje", materialId:"chatarra", peso:61.3, precioKg:300, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-30", providerId:"p_peaje", materialId:"archivo", peso:15.9, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-30", providerId:"p_menar", materialId:"carton", peso:4.8, precioKg:300, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-05-30", providerId:"p_menar", materialId:"carton", peso:7.6, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-02", providerId:"p_cabeto", materialId:"revuelto", peso:2.4, precioKg:300, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-02", providerId:"p_cabeto", materialId:"vidrio", peso:34.65, precioKg:50, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-02", providerId:"p_cabeto", materialId:"pet", peso:4.25, precioKg:400, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-02", providerId:"p_cabeto", materialId:"carton", peso:11.75, precioKg:400, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-02", providerId:"p_saulo-tio-cabeto", materialId:"revuelto", peso:100.0, precioKg:500, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-02", providerId:"p_saulo-tio-cabeto", materialId:"vidrio", peso:34.2, precioKg:50, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-02", providerId:"p_saulo-tio-cabeto", materialId:"carton", peso:2.55, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-02", providerId:"p_patron", materialId:"vidrio", peso:96.35, precioKg:50, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-02", providerId:"p_patron", materialId:"pet", peso:4.3, precioKg:350, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-02", providerId:"p_patron", materialId:"carton", peso:7.8, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-04", providerId:"p_carcel-silvia", materialId:"kraft", peso:128.55, precioKg:0, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-13", providerId:"p_carcel-silvia", materialId:"kraft", peso:226.15, precioKg:0, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-13", providerId:"p_jorge-ferretaria", materialId:"vidrio", peso:155.0, precioKg:50, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-13", providerId:"p_juan-pablo-cabrera", materialId:"pasta", peso:9.1, precioKg:300, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-13", providerId:"p_juan-pablo-cabrera", materialId:"carton", peso:12.4, precioKg:300, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-13", providerId:"p_dona-gloria", materialId:"revuelto", peso:10.95, precioKg:300, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-13", providerId:"p_dona-gloria", materialId:"carton", peso:11.5, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-13", providerId:"p_casa-agraria", materialId:"carton", peso:50.0, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-18", providerId:"p_carcel-silvia", materialId:"kraft", peso:243.9, precioKg:0, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-18", providerId:"p_adrian-bicicleteria", materialId:"revuelto", peso:31.55, precioKg:200, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-18", providerId:"p_menar", materialId:"carton", peso:18.3, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-22", providerId:"p_casa-agraria", materialId:"carton", peso:76.5, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-23", providerId:"p_erlinda-billar", materialId:"carton", peso:51.9, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-23", providerId:"p_erlinda-billar", materialId:"vidrio", peso:16.85, precioKg:50, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-23", providerId:"p_erlinda-billar", materialId:"metal", peso:5.35, precioKg:4000, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-23", providerId:"p_cabeto", materialId:"carton", peso:17.75, precioKg:400, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-26", providerId:"p_cabeto", materialId:"pet", peso:8.5, precioKg:400, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-26", providerId:"p_cabeto", materialId:"vidrio", peso:36.4, precioKg:50, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-23", providerId:"p_yoana-tienda", materialId:"revuelto", peso:15.9, precioKg:200, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-23", providerId:"p_yoana-tienda", materialId:"carton", peso:10.15, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-23", providerId:"p_yoana-tienda", materialId:"pet", peso:7.1, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-23", providerId:"p_yoana-tienda", materialId:"metal", peso:2.1, precioKg:4000, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-25", providerId:"p_carcel-silvia", materialId:"kraft", peso:452.35, precioKg:0, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-27", providerId:"p_oscar-franco", materialId:"vidrio", peso:62.05, precioKg:50, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-27", providerId:"p_oscar-franco", materialId:"carton", peso:8.4, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-27", providerId:"p_oscar-franco", materialId:"pasta", peso:2.65, precioKg:350, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-27", providerId:"p_oscar-franco", materialId:"pet", peso:4.05, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-27", providerId:"p_oscar-franco", materialId:"metal", peso:0.8, precioKg:4000, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-30", providerId:"p_melva", materialId:"revuelto", peso:19.35, precioKg:300, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-30", providerId:"p_melva", materialId:"revuelto", peso:4.3, precioKg:200, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-30", providerId:"p_melva", materialId:"carton", peso:64.8, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-30", providerId:"p_melva", materialId:"vidrio", peso:4.5, precioKg:50, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-30", providerId:"p_sheily", materialId:"carton", peso:6.4, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-06-30", providerId:"p_sheily", materialId:"revuelto", peso:8.6, precioKg:300, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-03", providerId:"p_la-leona", materialId:"vidrio", peso:44.2, precioKg:50, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-03", providerId:"p_cabeto", materialId:"carton", peso:31.35, precioKg:400, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-03", providerId:"p_cabeto", materialId:"vidrio", peso:22.5, precioKg:50, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-03", providerId:"p_cabeto", materialId:"revuelto", peso:6.85, precioKg:200, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-03", providerId:"p_cabeto", materialId:"pet", peso:1.2, precioKg:400, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-03", providerId:"p_adrian-bicicleteria", materialId:"carton", peso:27.85, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-03", providerId:"p_adrian-bicicleteria", materialId:"revuelto", peso:4.1, precioKg:200, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-04", providerId:"p_carcel-silvia", materialId:"kraft", peso:142.25, precioKg:0, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-10", providerId:"p_jonatan", materialId:"carton", peso:137.7, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-10", providerId:"p_jonatan", materialId:"carton", peso:22.5, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-10", providerId:"p_jonatan", materialId:"revuelto", peso:6.6, precioKg:300, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-10", providerId:"p_jonatan", materialId:"archivo", peso:50.6, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-10", providerId:"p_jonatan", materialId:"pasta", peso:2.1, precioKg:300, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-10", providerId:"p_adriana", materialId:"pasta", peso:9.0, precioKg:300, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-10", providerId:"p_adriana", materialId:"carton", peso:7.8, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-10", providerId:"p_adriana", materialId:"revuelto", peso:2.4, precioKg:300, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-10", providerId:"p_adrianan", materialId:"revuelto", peso:3.2, precioKg:300, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-10", providerId:"p_adriana", materialId:"metal", peso:1.1, precioKg:4000, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-15", providerId:"p_vanessa-enfermera", materialId:"carton", peso:10.45, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-15", providerId:"p_juan-pablo-cabrera", materialId:"revuelto", peso:13.6, precioKg:300, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-15", providerId:"p_menar", materialId:"carton", peso:12.65, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-15", providerId:"p_casa-agraria", materialId:"carton", peso:54.0, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-15", providerId:"p_cabeto", materialId:"carton", peso:28.7, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-15", providerId:"p_cabeto", materialId:"vidrio", peso:44.5, precioKg:50, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-15", providerId:"p_cabeto", materialId:"pet", peso:1.6, precioKg:450, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-15", providerId:"p_cabeto", materialId:"revuelto", peso:1.5, precioKg:300, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-15", providerId:"p_yuri", materialId:"vidrio", peso:185.0, precioKg:50, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-18", providerId:"p_carcel-silvia", materialId:"kraft", peso:415.85, precioKg:0, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-18", providerId:"p_oscar-franco", materialId:"vidrio", peso:69.2, precioKg:50, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-18", providerId:"p_oscar-franco", materialId:"pet", peso:10.6, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-18", providerId:"p_oscar-franco", materialId:"metal", peso:1.6, precioKg:4000, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-18", providerId:"p_oscar-franco", materialId:"carton", peso:9.6, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-22", providerId:"p_cabeto", materialId:"chatarra", peso:8.45, precioKg:600, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-22", providerId:"p_cabeto", materialId:"vidrio", peso:20.5, precioKg:50, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-22", providerId:"p_cabeto", materialId:"carton", peso:8.0, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-22", providerId:"p_cabeto", materialId:"revuelto", peso:4.45, precioKg:200, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-25", providerId:"p_senora-esperanza", materialId:"pet", peso:10.1, precioKg:400, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-25", providerId:"p_senora-esperanza", materialId:"pasta", peso:36.55, precioKg:300, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-25", providerId:"p_senora-esperanza", materialId:"chatarra", peso:38.45, precioKg:300, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-25", providerId:"p_senora-esperanza", materialId:"carton", peso:57.15, precioKg:400, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-25", providerId:"p_senora-esperanza", materialId:"archivo", peso:8.25, precioKg:400, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-25", providerId:"p_senora-esperanza", materialId:"carton", peso:6.25, precioKg:300, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-25", providerId:"p_senora-esperanza", materialId:"metal", peso:1.95, precioKg:4000, pagado:true, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-25", providerId:"p_adrian-bicicleteria", materialId:"carton", peso:54.3, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-25", providerId:"p_adrian-bicicleteria", materialId:"revuelto", peso:6.4, precioKg:300, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-25", providerId:"p_mujer-topo", materialId:"carton", peso:6.1, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-25", providerId:"p_mujer-topo", materialId:"revuelto", peso:12.7, precioKg:300, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-25", providerId:"p_diony", materialId:"carton", peso:18.6, precioKg:300, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-25", providerId:"p_diony", materialId:"carton", peso:46.7, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-25", providerId:"p_carcel-silvia", materialId:"kraft", peso:576.51, precioKg:0, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-25", providerId:"p_yoana-tienda", materialId:"revuelto", peso:4.8, precioKg:200, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-25", providerId:"p_yoana-tienda", materialId:"revuelto", peso:3.4, precioKg:300, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-25", providerId:"p_yoana-tienda", materialId:"vidrio", peso:54.0, precioKg:50, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-25", providerId:"p_yoana-tienda", materialId:"pet", peso:6.1, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-25", providerId:"p_yoana-tienda", materialId:"metal", peso:1.2, precioKg:4000, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-25", providerId:"p_melva", materialId:"carton", peso:64.35, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-25", providerId:"p_melva", materialId:"vidrio", peso:10.9, precioKg:50, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-25", providerId:"p_melva", materialId:"revuelto", peso:12.4, precioKg:300, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-28", providerId:"p_erlinda-billar", materialId:"carton", peso:26.95, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-28", providerId:"p_erlinda-billar", materialId:"vidrio", peso:21.15, precioKg:50, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-28", providerId:"p_erlinda-billar", materialId:"metal", peso:8.3, precioKg:3500, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-07-28", providerId:"p_yuri", materialId:"vidrio", peso:37.65, precioKg:50, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-08-05", providerId:"p_cabeto", materialId:"carton", peso:14.6, precioKg:400, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-08-05", providerId:"p_cabeto", materialId:"revuelto", peso:2.7, precioKg:200, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-08-05", providerId:"p_cabeto", materialId:"vidrio", peso:48.9, precioKg:50, pagado:false, responsable:"", observaciones:"" },
+    { id: crypto.randomUUID(), fecha:"2026-08-05", providerId:"p_cabeto", materialId:"pasta", peso:1.45, precioKg:300, pagado:false, responsable:"", observaciones:"" },
+  ];
+}
+
+/* ---------- Utilidades ---------- */
+const money = (n) => (Number(n)||0).toLocaleString("es-CO", { style:"currency", currency:"COP", maximumFractionDigits:0 });
+const kg = (n) => `${(Number(n)||0).toLocaleString("es-CO",{ maximumFractionDigits:2 })} kg`;
+const todayISO = () => new Date().toISOString().slice(0,10);
+const fmtDate = (iso) => iso ? new Date(iso+"T12:00:00").toLocaleDateString("es-CO",{ day:"2-digit", month:"short", year:"numeric" }) : "—";
+
+/* ---------- UI compartida ---------- */
+const inputStyle = { borderColor:"var(--border)" };
+function TextInput(props){ return <input {...props} className={`w-full rounded-xl border px-3.5 py-2.5 text-sm bg-white outline-none transition ${props.className||""}`} style={inputStyle} />; }
+function Select({ children, ...props }){ return <select {...props} className={`w-full rounded-xl border px-3.5 py-2.5 text-sm bg-white outline-none ${props.className||""}`} style={inputStyle}>{children}</select>; }
+function Textarea(props){ return <textarea rows={2} {...props} className={`w-full rounded-xl border px-3.5 py-2.5 text-sm bg-white outline-none ${props.className||""}`} style={inputStyle} />; }
+
+function EstadoBadge({ pagado, onClick, updating }){
+  return (
+    <button onClick={onClick} disabled={updating}
+      className="inline-flex items-center gap-1.5 text-xs font-600 px-2.5 py-1 rounded-full transition active:scale-95 disabled:opacity-60 disabled:cursor-wait"
+      style={ pagado ? { background:"#E7F3EB", color:"var(--primary-dark)" } : { background:"#FBEFE7", color:"#9A5A1F" } }
+      title={updating ? "Actualizando..." : "Toca para cambiar el estado"}>
+      <span className="w-1.5 h-1.5 rounded-full" style={{ background: updating ? "#9AA79A" : (pagado ? "var(--primary)" : "#C98A2C") }}></span>
+      {updating ? "Actualizando..." : (pagado ? "Pagado" : "Pendiente")}
+    </button>
+  );
+}
+
+/* ---------- Encabezado ---------- */
+function Header(){
+  const hoy = new Date().toLocaleDateString("es-CO", { weekday:"long", day:"2-digit", month:"long", year:"numeric" });
+  return (
+    <header className="pt-8 pb-16 sm:pt-10 sm:pb-20 px-4 sm:px-6 lg:px-8" style={{
+      background: "linear-gradient(160deg, var(--primary-dark) 0%, var(--primary) 62%, #3E7F5C 100%)"
+    }}>
+      <div className="max-w-6xl mx-auto flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2 text-emerald-100/80 text-xs font-medium tracking-wide uppercase mb-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-300"></span>
+            Punto de acopio
+          </div>
+          <h1 className="font-display text-3xl sm:text-4xl font-700 text-white tracking-tight">Recepción de Material</h1>
+          <p className="text-emerald-50/70 text-sm mt-1 capitalize">{hoy}</p>
+        </div>
+        <p className="text-emerald-50/85 text-sm max-w-xs leading-relaxed">
+          Registro de recepción en báscula: peso bruto, tara, peso neto y pago — sincronizado en vivo con tu Google Sheet.
+        </p>
+      </div>
+    </header>
+  );
+}
+
+/* ---------- Panel de estadísticas ---------- */
+function StatCard({ label, value, sub, icon }){
+  return (
+    <div className="bg-white rounded-2xl border p-5 flex flex-col gap-1 shadow-sm" style={{ borderColor:"var(--border)" }}>
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium uppercase tracking-wide" style={{ color:"var(--ink-muted)" }}>{label}</span>
+        <span className="text-lg">{icon}</span>
+      </div>
+      <span className="font-display text-2xl sm:text-[26px] font-700" style={{ color:"var(--ink)" }}>{value}</span>
+      {sub && <span className="text-xs" style={{ color:"var(--ink-muted)" }}>{sub}</span>}
+    </div>
+  );
+}
+
+function StatsPanel({ stats }){
+  return (
+    <div className="rise-in">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
+        <StatCard label="Total kilos" value={kg(stats.totalKg)} sub={`${stats.registros} recepciones`} icon="⚖️" />
+        <StatCard label="Valor total comprado" value={money(stats.totalValor)} sub="acumulado histórico" icon="💰" />
+        <StatCard label="Por pagar" value={money(stats.montoPendiente)} sub={`${stats.pendientesCount} pendientes`} icon="🕓" />
+        <StatCard label="Proveedores" value={stats.proveedoresCount} sub="con recepciones" icon="🧑‍🤝‍🧑" />
+        <StatCard label="Precio prom. / kg" value={money(stats.totalKg ? stats.totalValor/stats.totalKg : 0)} sub="promedio ponderado" icon="📊" />
+      </div>
+
+      <div className="bg-white rounded-2xl border p-5 sm:p-6 mt-4 shadow-sm" style={{ borderColor:"var(--border)" }}>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-display font-600 text-base" style={{ color:"var(--ink)" }}>Kilos recibidos por material</h2>
+          <span className="text-xs font-mono" style={{ color:"var(--ink-muted)" }}>{kg(stats.totalKg)} total</span>
+        </div>
+        <div className="flex flex-col gap-3">
+          {stats.porMaterial.map(m => {
+            const pct = stats.maxKg ? (m.kgTotal/stats.maxKg)*100 : 0;
+            const share = stats.totalKg ? (m.kgTotal/stats.totalKg)*100 : 0;
+            return (
+              <div key={m.id} className="flex items-center gap-3">
+                <div className="w-28 sm:w-40 shrink-0 flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background:m.color }}></span>
+                  <span className="text-sm truncate" style={{ color:"var(--ink)" }}>{m.nombre}</span>
+                </div>
+                <div className="flex-1 h-2.5 rounded-full bg-[color:var(--bg)] border overflow-hidden" style={{ borderColor:"var(--border)" }}>
+                  <div className="h-full rounded-full transition-all duration-500" style={{ width:`${pct}%`, background:m.color }}></div>
+                </div>
+                <div className="w-24 sm:w-28 shrink-0 text-right font-mono text-sm" style={{ color:"var(--ink)" }}>{kg(m.kgTotal)}</div>
+                <div className="w-12 shrink-0 text-right text-xs hidden sm:block" style={{ color:"var(--ink-muted)" }}>{share.toFixed(0)}%</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Formulario de recepción ---------- */
+function RecepcionForm({ materials, providers, onSubmit, onCreateProvider }){
+  const [providerId, setProviderId] = useState(providers[0]?.id || "");
+  const [nuevoProveedor, setNuevoProveedor] = useState(false);
+  const [nombreNuevo, setNombreNuevo] = useState("");
+  const [materialId, setMaterialId] = useState(materials[0]?.id || "");
+  const [pesoBruto, setPesoBruto] = useState("");
+  const [tara, setTara] = useState("");
+  const [precioKg, setPrecioKg] = useState(materials[0]?.rate || 0);
+  const [responsable, setResponsable] = useState("");
+  const [estadoInicial, setEstadoInicial] = useState("pendiente");
+  const [observaciones, setObservaciones] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const material = findMaterial(materials, materialId);
+  const brutoNum = parseFloat(pesoBruto) || 0;
+  const taraNum = parseFloat(tara) || 0;
+  const pesoNeto = pesoBruto ? Math.max(0, brutoNum - taraNum) : 0;
+  const precioNum = parseFloat(precioKg) || 0;
+  const total = pesoNeto * precioNum;
+
+  const onMaterialChange = (id) => { setMaterialId(id); setPrecioKg(findMaterial(materials, id).rate); };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if(submitting) return;
+    let pid = providerId;
+    if(nuevoProveedor){
+      if(!nombreNuevo.trim()){ setError("Escribe el nombre del nuevo proveedor."); return; }
+      setSubmitting(true);
+      const creado = await onCreateProvider(nombreNuevo.trim());
+      if(!creado.ok){ setError(creado.error || "No se pudo crear el proveedor en Google Sheets."); setSubmitting(false); return; }
+      pid = creado.id;
+    }
+    if(!pid){ setError("Selecciona o crea un proveedor."); return; }
+    if(pesoNeto <= 0){ setError("Ingresa el peso (debe ser mayor a 0)."); setSubmitting(false); return; }
+    setError(""); setSubmitting(true);
+    const resultado = await onSubmit({
+      fecha: todayISO(), providerId: pid, materialId,
+      pesoBruto: pesoBruto ? brutoNum : undefined, tara: tara ? taraNum : undefined,
+      peso: pesoNeto, precioKg: precioNum, pagado: estadoInicial === "pagado",
+      responsable: responsable.trim(), observaciones: observaciones.trim(),
+    });
+    setSubmitting(false);
+    if(resultado.ok){
+      setPesoBruto(""); setTara(""); setResponsable(""); setObservaciones(""); setNuevoProveedor(false); setNombreNuevo("");
+    } else {
+      setError(resultado.error || "No se pudo guardar la recepción en Google Sheets.");
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="bg-white rounded-2xl border p-5 sm:p-6 shadow-sm h-fit lg:sticky lg:top-5 rise-in" style={{ borderColor:"var(--border)" }}>
+      <h2 className="font-display font-600 text-base mb-4" style={{ color:"var(--ink)" }}>Nueva recepción</h2>
+
+      <div className="flex flex-col gap-4">
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="text-xs font-medium" style={{ color:"var(--ink-muted)" }}>Proveedor / recolector</label>
+            <button type="button" onClick={()=>setNuevoProveedor(v=>!v)} className="text-xs font-600" style={{ color:"var(--primary)" }}>
+              {nuevoProveedor ? "Elegir de la lista" : "+ Nuevo proveedor"}
+            </button>
+          </div>
+          {nuevoProveedor ? (
+            <TextInput value={nombreNuevo} onChange={e=>setNombreNuevo(e.target.value)} placeholder="Nombre del proveedor" />
+          ) : (
+            <Select value={providerId} onChange={e=>setProviderId(e.target.value)}>
+              {providers.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+            </Select>
+          )}
+        </div>
+
+        <div>
+          <label className="text-xs font-medium block mb-1.5" style={{ color:"var(--ink-muted)" }}>Material</label>
+          <Select value={materialId} onChange={e=>onMaterialChange(e.target.value)}>
+            {materials.map(m => <option key={m.id} value={m.id}>{m.nombre}{m.precioPendiente ? " — precio pendiente" : ` — ${money(m.rate)}/kg`}</option>)}
+          </Select>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-xs font-medium block mb-1.5" style={{ color:"var(--ink-muted)" }}>Peso (kg) <span style={{color:"var(--danger)"}}>*</span></label>
+            <TextInput type="number" min="0" step="0.01" value={pesoBruto} onChange={e=>setPesoBruto(e.target.value)} placeholder="0.00" className="font-mono" autoFocus />
+          </div>
+          <div>
+            <label className="text-xs font-medium block mb-1.5" style={{ color:"var(--ink-muted)" }}>Tara (opcional)</label>
+            <TextInput type="number" min="0" step="0.01" value={tara} onChange={e=>setTara(e.target.value)} placeholder="0.00" className="font-mono" />
+          </div>
+        </div>
+        {tara && parseFloat(tara)>0 && (
+          <p className="text-[11px] -mt-2.5" style={{ color:"var(--ink-muted)" }}>Peso neto: <strong className="font-mono">{pesoNeto.toFixed(2)} kg</strong> (peso − tara)</p>
+        )}
+
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-xs font-medium block mb-1.5" style={{ color:"var(--ink-muted)" }}>Precio / kg</label>
+            <TextInput type="number" min="0" step="1" value={precioKg} onChange={e=>setPrecioKg(e.target.value)} className="font-mono" />
+          </div>
+          <div>
+            <label className="text-xs font-medium block mb-1.5" style={{ color:"var(--ink-muted)" }}>Responsable</label>
+            <TextInput value={responsable} onChange={e=>setResponsable(e.target.value)} placeholder="Quién recibió" />
+          </div>
+        </div>
+
+        <div>
+          <label className="text-xs font-medium block mb-1.5" style={{ color:"var(--ink-muted)" }}>Estado del pago</label>
+          <div className="flex gap-2">
+            {["pendiente","pagado"].map(v => (
+              <button key={v} type="button" onClick={()=>setEstadoInicial(v)}
+                className="flex-1 text-sm font-600 py-2 rounded-xl border transition"
+                style={ estadoInicial===v
+                  ? { background: v==="pagado" ? "var(--primary)" : "#C98A2C", borderColor:"transparent", color:"#fff" }
+                  : { background:"#fff", borderColor:"var(--border)", color:"var(--ink-muted)" }}>
+                {v === "pagado" ? "Pagado" : "Pendiente"}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="text-xs font-medium block mb-1.5" style={{ color:"var(--ink-muted)" }}>Observaciones</label>
+          <Textarea value={observaciones} onChange={e=>setObservaciones(e.target.value)} />
+        </div>
+
+        {error && (
+          <div className="flex items-center gap-2 rounded-xl px-3.5 py-2.5" style={{ background:"#FBEAEA" }}>
+            <span style={{ color:"var(--danger)" }}>⚠</span>
+            <p className="text-sm font-600" style={{ color:"var(--danger)" }}>{error}</p>
+          </div>
+        )}
+
+        <div className="scale-display rounded-xl px-4 py-3.5 mt-1">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[10px] uppercase tracking-widest text-emerald-200/50 font-mono">Total a pagar</span>
+            <span className="text-[10px] uppercase tracking-widest text-emerald-200/50 font-mono">{material.nombre}</span>
+          </div>
+          <div className={`font-mono text-2xl sm:text-[28px] font-600 scale-digits ${total===0?"dim":""}`}>{money(total)}</div>
+          <div className="notch mt-2.5 rounded-full opacity-30"></div>
+          <div className="flex justify-between mt-2 text-[11px] font-mono text-emerald-200/50">
+            <span>{pesoNeto.toFixed(2)} kg</span>
+            <span>× {money(precioNum)}/kg</span>
+          </div>
+        </div>
+
+        <button type="submit" disabled={submitting} className="w-full rounded-xl py-3 text-sm font-600 text-white transition active:scale-[0.98] hover:opacity-95 disabled:opacity-60" style={{ background:"var(--primary)" }}>
+          {submitting ? "Guardando…" : "Guardar recepción"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/* ---------- Historial ---------- */
+const PAGE_SIZE = 20;
+
+function HistoryPanel({ records, providersById, materials, onTogglePagado, onExport, onReload, refreshing, updatingIds }){
+  const [filter, setFilter] = useState("todos");
+  const [q, setQ] = useState("");
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+
+  const sorted = useMemo(() => [...records].sort((a,b) => b.fecha.localeCompare(a.fecha)), [records]);
+  const filtered = useMemo(() => {
+    let rows = sorted;
+    if(filter === "pendiente") rows = rows.filter(r => !r.pagado);
+    if(filter === "pagado") rows = rows.filter(r => r.pagado);
+    if(q.trim()){
+      const needle = q.toLowerCase();
+      rows = rows.filter(r => (providersById[r.providerId]?.nombre||"").toLowerCase().includes(needle));
+    }
+    return rows;
+  }, [sorted, filter, q, providersById]);
+  const pendientesCount = useMemo(() => records.filter(r => !r.pagado).length, [records]);
+  const visible = filtered.slice(0, visibleCount);
+
+  const changeFilter = (f) => { setFilter(f); setVisibleCount(PAGE_SIZE); };
+
+  return (
+    <div className="bg-white rounded-2xl border shadow-sm flex flex-col rise-in" style={{ borderColor:"var(--border)" }}>
+      <div className="flex flex-col gap-3 px-5 sm:px-6 py-4 border-b" style={{ borderColor:"var(--border)" }}>
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div>
+            <h2 className="font-display font-600 text-base" style={{ color:"var(--ink)" }}>Historial de recepciones</h2>
+            <p className="text-xs mt-0.5" style={{ color:"var(--ink-muted)" }}>{records.length} en total · {pendientesCount} pendientes</p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button onClick={onReload} disabled={refreshing} title="Recargar desde Google Sheets"
+              className="text-xs px-3 py-2 rounded-xl border transition hover:bg-[color:var(--bg)] disabled:opacity-50" style={{ borderColor:"var(--border)", color:"var(--ink-muted)" }}>
+              {refreshing ? "…" : "🔄"}
+            </button>
+            <button onClick={onExport} className="flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-xs font-600 transition hover:bg-[color:var(--bg)]" style={{ borderColor:"var(--border)", color:"var(--primary-dark)" }}>⬇ Exportar</button>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5">
+            {[
+              { id:"todos", label:`Todos (${records.length})` },
+              { id:"pendiente", label:`Pendientes (${pendientesCount})` },
+              { id:"pagado", label:`Pagados (${records.length - pendientesCount})` },
+            ].map(f => (
+              <button key={f.id} onClick={()=>changeFilter(f.id)} className="text-xs font-600 px-3 py-1.5 rounded-full border transition"
+                style={ filter===f.id ? { background:"var(--primary)", borderColor:"var(--primary)", color:"#fff" } : { background:"#fff", borderColor:"var(--border)", color:"var(--ink-muted)" }}>
+                {f.label}
+              </button>
+            ))}
+          </div>
+          <input value={q} onChange={e=>{setQ(e.target.value); setVisibleCount(PAGE_SIZE);}} placeholder="Buscar proveedor..." className="text-xs rounded-full border px-3 py-1.5 outline-none ml-auto w-40" style={inputStyle} />
+        </div>
+      </div>
+
+      {filtered.length === 0 && (
+        <p className="px-6 py-10 text-center text-sm" style={{ color:"var(--ink-muted)" }}>
+          {records.length===0 ? "Aún no hay recepciones. Agrega la primera desde el formulario." : "No hay registros en esta categoría."}
+        </p>
+      )}
+
+      {/* Tarjetas — móvil */}
+      <div className="sm:hidden flex flex-col divide-y" style={{ borderColor:"var(--border)" }}>
+        {visible.map(r => {
+          const m = findMaterial(materials, r.materialId);
+          const total = Number(r.peso) * r.precioKg;
+          return (
+            <div key={r.id} className="px-5 py-3.5 flex flex-col gap-2">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="font-medium text-sm" style={{ color:"var(--ink)" }}>{providersById[r.providerId]?.nombre || "—"}</p>
+                  <span className="inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full mt-1" style={{ background:"var(--bg)", color:"var(--ink)" }}>
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ background:m.color }}></span>{m.nombre}
+                  </span>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="font-mono font-600 text-sm" style={{ color:"var(--ink)" }}>{money(total)}</p>
+                  <p className="font-mono text-xs" style={{ color:"var(--ink-muted)" }}>{kg(r.peso)}</p>
+                </div>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs" style={{ color:"var(--ink-muted)" }}>{fmtDate(r.fecha)}</span>
+                <EstadoBadge pagado={r.pagado} onClick={()=>onTogglePagado(r.id)} updating={updatingIds.has(r.id)} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Tabla — escritorio */}
+      <div className="hidden sm:block overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs uppercase tracking-wide" style={{ color:"var(--ink-muted)" }}>
+              <th className="px-5 sm:px-6 py-3 font-medium">Proveedor</th>
+              <th className="px-3 py-3 font-medium">Material</th>
+              <th className="px-3 py-3 font-medium text-right">Bruto</th>
+              <th className="px-3 py-3 font-medium text-right">Tara</th>
+              <th className="px-3 py-3 font-medium text-right">Neto</th>
+              <th className="px-3 py-3 font-medium text-right">Precio/kg</th>
+              <th className="px-3 py-3 font-medium text-right">Total</th>
+              <th className="px-3 py-3 font-medium">Fecha</th>
+              <th className="px-3 py-3 font-medium text-right pr-5 sm:pr-6">Estado</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visible.map(r => {
+              const m = findMaterial(materials, r.materialId);
+              const total = Number(r.peso) * r.precioKg;
+              return (
+                <tr key={r.id} className="border-t hover:bg-[color:var(--bg)]/60 transition" style={{ borderColor:"var(--border)" }}>
+                  <td className="px-5 sm:px-6 py-3 font-medium" style={{ color:"var(--ink)" }}>{providersById[r.providerId]?.nombre || "—"}</td>
+                  <td className="px-3 py-3">
+                    <span className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-full" style={{ background:"var(--bg)", color:"var(--ink)" }}>
+                      <span className="w-1.5 h-1.5 rounded-full" style={{ background:m.color }}></span>{m.nombre}
+                    </span>
+                  </td>
+                  <td className="px-3 py-3 text-right font-mono text-xs" style={{ color:"var(--ink-muted)" }}>{r.pesoBruto ? kg(r.pesoBruto) : "—"}</td>
+                  <td className="px-3 py-3 text-right font-mono text-xs" style={{ color:"var(--ink-muted)" }}>{r.tara ? kg(r.tara) : "—"}</td>
+                  <td className="px-3 py-3 text-right font-mono">{kg(r.peso)}</td>
+                  <td className="px-3 py-3 text-right font-mono text-xs" style={{ color:"var(--ink-muted)" }}>{money(r.precioKg)}</td>
+                  <td className="px-3 py-3 text-right font-mono font-600">{money(total)}</td>
+                  <td className="px-3 py-3 text-xs" style={{ color:"var(--ink-muted)" }}>{fmtDate(r.fecha)}</td>
+                  <td className="px-3 py-3 text-right pr-5 sm:pr-6"><EstadoBadge pagado={r.pagado} onClick={()=>onTogglePagado(r.id)} updating={updatingIds.has(r.id)} /></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {visibleCount < filtered.length && (
+        <div className="px-5 sm:px-6 py-4 border-t flex justify-center" style={{ borderColor:"var(--border)" }}>
+          <button onClick={()=>setVisibleCount(v=>v+PAGE_SIZE)} className="text-sm font-600 px-4 py-2 rounded-xl border transition hover:bg-[color:var(--bg)]" style={{ borderColor:"var(--border)", color:"var(--primary-dark)" }}>
+            Ver {Math.min(PAGE_SIZE, filtered.length-visibleCount)} más ({filtered.length-visibleCount} restantes)
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------- Exportar ---------- */
+function buildCSV(records, providersById, materials){
+  const header = ["Proveedor","Material","Peso bruto","Tara","Peso neto (kg)","Precio/kg","Total","Fecha","Estado","Responsable","Observaciones"];
+  const rows = records.map(r => {
+    const m = findMaterial(materials, r.materialId);
+    const total = Number(r.peso) * r.precioKg;
+    return [providersById[r.providerId]?.nombre||"", m.nombre, r.pesoBruto??"", r.tara??"", Number(r.peso).toFixed(2), r.precioKg, total, r.fecha, r.pagado?"Pagado":"Pendiente", r.responsable||"", r.observaciones||""];
+  });
+  return [header, ...rows].map(row => row.map(v => `"${String(v).replace(/"/g,'""')}"`).join(",")).join("\n");
+}
+
+function buildSummary(records, stats){
+  const lines = [];
+  lines.push(`REPORTE DE RECEPCIÓN — MATERIAL RECICLABLE`);
+  lines.push(`Fecha de generación: ${fmtDate(todayISO())}`);
+  lines.push(``);
+  lines.push(`Total recepciones: ${records.length}`);
+  lines.push(`Total kilos recibidos: ${stats.totalKg.toFixed(2)} kg`);
+  lines.push(`Valor total comprado: ${money(stats.totalValor)}`);
+  lines.push(`Pendiente por pagar: ${money(stats.montoPendiente)} (${stats.pendientesCount} registros)`);
+  lines.push(``);
+  lines.push(`Desglose por material:`);
+  stats.porMaterial.filter(m => m.kgTotal > 0).forEach(m => {
+    lines.push(`  - ${m.nombre}: ${m.kgTotal.toFixed(2)} kg`);
+  });
+  return lines.join("\n");
+}
+
+function ExportModal({ records, stats, providersById, materials, onClose }){
+  const [copied, setCopied] = useState(false);
+  const summary = useMemo(() => buildSummary(records, stats), [records, stats]);
+  const downloadedRef = useRef(false);
+
+  useEffect(() => {
+    if(downloadedRef.current) return;
+    downloadedRef.current = true;
+    const csv = buildCSV(records, providersById, materials);
+    const blob = new Blob(["﻿" + csv], { type:"text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `recepcion-reciclaje-${todayISO()}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url), 1500);
+  }, []);
+
+  const copySummary = async () => {
+    try{ await navigator.clipboard.writeText(summary); setCopied(true); setTimeout(()=>setCopied(false),2000); }catch(e){}
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background:"rgba(15,27,20,0.45)" }} onClick={onClose}>
+      <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl pop-in" onClick={e=>e.stopPropagation()}>
+        <div className="flex items-center gap-3 mb-1">
+          <span className="w-9 h-9 rounded-full flex items-center justify-center text-lg" style={{ background:"#E7F3EB" }}>✅</span>
+          <h3 className="font-display font-700 text-lg" style={{ color:"var(--ink)" }}>Reporte generado</h3>
+        </div>
+        <p className="text-sm mb-4" style={{ color:"var(--ink-muted)" }}>Se descargó el CSV con {records.length} recepciones. Puedes copiar el resumen para enviarlo por chat o correo.</p>
+        <pre className="text-xs font-mono whitespace-pre-wrap rounded-xl border p-3.5 max-h-52 overflow-y-auto mb-4" style={{ borderColor:"var(--border)", background:"var(--bg)", color:"var(--ink)" }}>{summary}</pre>
+        <div className="flex gap-2">
+          <button onClick={copySummary} className="flex-1 rounded-xl py-2.5 text-sm font-600 text-white transition hover:opacity-95" style={{ background:"var(--primary)" }}>{copied?"¡Copiado!":"Copiar resumen"}</button>
+          <button onClick={onClose} className="flex-1 rounded-xl py-2.5 text-sm font-600 border transition hover:bg-[color:var(--bg)]" style={{ borderColor:"var(--border)", color:"var(--ink)" }}>Cerrar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Toast ---------- */
+function Toast({ toast }){
+  const bg = toast.type==="success" ? "var(--primary-dark)" : toast.type==="error" ? "var(--danger)" : "#3A4A3E";
+  const icon = toast.type==="success" ? "✓" : toast.type==="error" ? "⚠" : "•";
+  return (
+    <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 pop-in">
+      <div className="flex items-center gap-2 px-4 py-2.5 rounded-full shadow-lg text-sm font-500 text-white max-w-[90vw]" style={{ background: bg }}>
+        <span>{icon}</span><span className="truncate">{toast.text}</span>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Pantallas de estado (configuración / carga / error / vacío) ---------- */
+function CenterScreen({ children }){
+  return (
+    <div className="min-h-screen flex items-center justify-center p-6" style={{ background:"var(--bg)" }}>
+      <div className="bg-white rounded-2xl border p-6 max-w-md w-full text-center shadow-sm" style={{ borderColor:"var(--border)" }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function SetupNotice(){
+  return (
+    <CenterScreen>
+      <p className="text-3xl mb-2">🔌</p>
+      <h2 className="font-display font-700 text-lg mb-1" style={{ color:"var(--ink)" }}>Falta conectar Google Sheets</h2>
+      <p className="text-sm" style={{ color:"var(--ink-muted)" }}>
+        Abre <code className="font-mono text-xs">recepcion-material-reciclable.html</code> en un editor de texto y reemplaza
+        {" "}<code className="font-mono text-xs">SHEETS_URL</code> y <code className="font-mono text-xs">SHEETS_TOKEN</code> al inicio del
+        archivo con los datos de tu Apps Script. Sigue la guía <strong>conectar-google-sheets.md</strong> para los pasos completos.
+      </p>
+    </CenterScreen>
+  );
+}
+
+function LoadingScreen(){
+  return (
+    <CenterScreen>
+      <p className="text-3xl mb-2">📡</p>
+      <h2 className="font-display font-700 text-lg mb-1" style={{ color:"var(--ink)" }}>Cargando datos desde Google Sheets…</h2>
+      <p className="text-sm" style={{ color:"var(--ink-muted)" }}>Un momento, esto normalmente tarda 1–2 segundos.</p>
+    </CenterScreen>
+  );
+}
+
+function ErrorScreen({ message, onRetry }){
+  return (
+    <CenterScreen>
+      <p className="text-3xl mb-2">⚠️</p>
+      <h2 className="font-display font-700 text-lg mb-1" style={{ color:"var(--ink)" }}>No se pudo cargar desde Google Sheets</h2>
+      <p className="text-sm mb-4" style={{ color:"var(--ink-muted)" }}>{message}</p>
+      <button onClick={onRetry} className="rounded-xl px-4 py-2.5 text-sm font-600 text-white" style={{ background:"var(--primary)" }}>Reintentar</button>
+    </CenterScreen>
+  );
+}
+
+function EmptyDataScreen({ migrating, onMigrate, onSkip }){
+  return (
+    <CenterScreen>
+      <p className="text-3xl mb-2">🌱</p>
+      <h2 className="font-display font-700 text-lg mb-1" style={{ color:"var(--ink)" }}>Tu Google Sheet está vacío</h2>
+      <p className="text-sm mb-4" style={{ color:"var(--ink-muted)" }}>
+        Puedes cargar el catálogo de materiales y los datos históricos originales como punto de partida, o empezar en blanco.
+      </p>
+      <div className="flex flex-col gap-2">
+        <button onClick={onMigrate} disabled={migrating} className="rounded-xl px-4 py-2.5 text-sm font-600 text-white disabled:opacity-60" style={{ background:"var(--primary)" }}>
+          {migrating ? "Cargando…" : "Cargar catálogo y datos históricos"}
+        </button>
+        <button onClick={onSkip} className="rounded-xl px-4 py-2.5 text-sm font-600 border" style={{ borderColor:"var(--border)", color:"var(--ink)" }}>
+          Empezar en blanco
+        </button>
+      </div>
+    </CenterScreen>
+  );
+}
+
+/* ---------- Copia de seguridad (solo lectura: descarga lo que hay ahora en Sheets) ---------- */
+function BackupModal({ providers, records, materials, onClose }){
+  const [copyStatus, setCopyStatus] = useState("");
+  const textareaRef = useRef(null);
+
+  const backup = { tipo:"respaldo-recepcion-reciclaje", exportadoEn: new Date().toISOString(), materials, providers, records };
+  const json = JSON.stringify(backup, null, 2);
+
+  const downloadFile = () => {
+    try{
+      const blob = new Blob([json], { type:"application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `respaldo-recepcion-${todayISO()}.json`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(()=>URL.revokeObjectURL(url), 1500);
+      setCopyStatus("descargado");
+    }catch(e){
+      setCopyStatus("descarga-fallo");
+    }
+  };
+
+  const copyAll = async () => {
+    try{
+      await navigator.clipboard.writeText(json);
+      setCopyStatus("copiado");
+    }catch(e){
+      if(textareaRef.current){ textareaRef.current.focus(); textareaRef.current.select(); }
+      setCopyStatus("selecciona-manual");
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background:"rgba(15,27,20,0.45)" }} onClick={onClose}>
+      <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl pop-in max-h-[88vh] overflow-y-auto" onClick={e=>e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-display font-700 text-lg" style={{ color:"var(--ink)" }}>Copia de seguridad</h3>
+          <button onClick={onClose} className="text-xl leading-none" style={{ color:"var(--ink-muted)" }}>×</button>
+        </div>
+        <div className="flex flex-col gap-3">
+          <p className="text-sm" style={{ color:"var(--ink-muted)" }}>
+            {materials.length} materiales, {providers.length} proveedores y {records.length} recepciones — tal como están ahora mismo en tu Google Sheet.
+            Esto es solo una copia de lectura para guardar aparte; para restaurar datos, edita el Google Sheet directamente.
+          </p>
+          <div className="flex gap-2">
+            <button onClick={downloadFile} className="flex-1 rounded-xl py-2.5 text-sm font-600 text-white" style={{ background:"var(--primary)" }}>⬇ Descargar archivo</button>
+            <button onClick={copyAll} className="flex-1 rounded-xl py-2.5 text-sm font-600 border" style={{ borderColor:"var(--border)", color:"var(--ink)" }}>📋 Copiar todo</button>
+          </div>
+          {copyStatus === "descargado" && <p className="text-xs" style={{ color:"var(--primary-dark)" }}>Archivo descargado.</p>}
+          {copyStatus === "descarga-fallo" && <p className="text-xs" style={{ color:"var(--danger)" }}>La descarga no funcionó aquí — usa "Copiar todo" en su lugar.</p>}
+          {copyStatus === "copiado" && <p className="text-xs" style={{ color:"var(--primary-dark)" }}>Copiado al portapapeles.</p>}
+          {copyStatus === "selecciona-manual" && <p className="text-xs" style={{ color:"var(--danger)" }}>No se pudo copiar automáticamente — el texto de abajo ya quedó seleccionado, usa "Copiar" de tu teclado.</p>}
+          <textarea ref={textareaRef} readOnly value={json} className="w-full text-[10px] font-mono rounded-xl border p-3 h-40" style={{ borderColor:"var(--border)", background:"var(--bg)" }} onFocus={e=>e.target.select()} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function App(){
+  const [materials, setMaterials] = useState([]);
+  const [providers, setProviders] = useState([]);
+  const [records, setRecords] = useState([]);
+  const [loadStatus, setLoadStatus] = useState(SHEETS_CONFIGURED ? "cargando" : "sin-configurar");
+  const [loadError, setLoadError] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
+  const [updatingIds, setUpdatingIds] = useState(() => new Set());
+  const [skipEmpty, setSkipEmpty] = useState(false);
+  const [migrating, setMigrating] = useState(false);
+  const [toast, setToast] = useState(null);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [backupOpen, setBackupOpen] = useState(false);
+
+  const cargarDesdeSheets = async ({ initial=false } = {}) => {
+    if(initial){ setLoadStatus("cargando"); setLoadError(""); } else { setRefreshing(true); }
+    try{
+      const res = await fetch(`${SHEETS_URL}?token=${encodeURIComponent(SHEETS_TOKEN)}`);
+      const data = await res.json();
+      if(data.error) throw new Error(data.error);
+      setMaterials((data.materials||[]).map(m => ({
+        ...m,
+        rate: Number(m.rate)||0,
+        precioPendiente: m.precioPendiente===true||m.precioPendiente==="true"||m.precioPendiente==="TRUE",
+      })));
+      setProviders(data.providers||[]);
+      setRecords((data.records||[]).map(r => ({
+        ...r,
+        peso: Number(r.peso)||0,
+        precioKg: Number(r.precioKg)||0,
+        pagado: r.pagado===true||r.pagado==="true"||r.pagado==="TRUE",
+      })));
+      if(initial) setLoadStatus("listo");
+      else setToast({ type:"success", text:"Datos actualizados desde Google Sheets" });
+    }catch(e){
+      if(initial){ setLoadStatus("error"); setLoadError(e.message || "Error de red"); }
+      else setToast({ type:"error", text:`No se pudo actualizar: ${e.message}` });
+    }
+    if(!initial) setRefreshing(false);
+  };
+
+  useEffect(() => { if(SHEETS_CONFIGURED) cargarDesdeSheets({ initial:true }); }, []);
+  useEffect(() => { if(!toast) return; const t=setTimeout(()=>setToast(null),2600); return ()=>clearTimeout(t); }, [toast]);
+
+  const providersById = useMemo(() => Object.fromEntries(providers.map(p=>[p.id,p])), [providers]);
+
+  const postToSheets = async (payload) => {
+    const res = await fetch(SHEETS_URL, {
+      method:"POST",
+      headers:{ "Content-Type":"text/plain;charset=utf-8" }, // evita el preflight CORS de Apps Script
+      body: JSON.stringify({ token: SHEETS_TOKEN, ...payload }),
+    });
+    const data = await res.json();
+    if(data.error) throw new Error(data.error);
+    return data;
+  };
+
+  const createProvider = async (nombre) => {
+    const existing = providers.find(p => p.nombre.trim().toLowerCase() === nombre.toLowerCase());
+    if(existing) return { ok:true, id: existing.id };
+    const id = "p_" + crypto.randomUUID().slice(0,8);
+    const provider = { id, nombre, telefono:"", materialFrecuente:"" };
+    try{
+      await postToSheets({ action:"addProvider", provider });
+      setProviders(prev => [...prev, provider]);
+      return { ok:true, id };
+    }catch(e){
+      return { ok:false, error: e.message };
+    }
+  };
+
+  const addRecord = async (rec) => {
+    const record = { id: crypto.randomUUID(), ...rec };
+    try{
+      await postToSheets({ action:"addRecord", record });
+      setRecords(prev => [record, ...prev]);
+      setToast({ type:"success", text:`Recepción guardada — ${providersById[rec.providerId]?.nombre || "proveedor nuevo"}` });
+      return { ok:true };
+    }catch(e){
+      return { ok:false, error: e.message };
+    }
+  };
+
+  const togglePagado = async (id) => {
+    const rec = records.find(r=>r.id===id);
+    if(!rec || updatingIds.has(id)) return;
+    const nuevo = !rec.pagado;
+    setUpdatingIds(prev => new Set(prev).add(id));
+    try{
+      await postToSheets({ action:"updateRecord", id, cambios:{ pagado: nuevo } });
+      setRecords(prev => prev.map(r => r.id===id ? { ...r, pagado: nuevo } : r));
+    }catch(e){
+      setToast({ type:"error", text:`No se pudo actualizar el estado: ${e.message}` });
+    }
+    setUpdatingIds(prev => { const s = new Set(prev); s.delete(id); return s; });
+  };
+
+  const cargarDatosIniciales = async () => {
+    setMigrating(true);
+    try{
+      await postToSheets({ action:"replaceAll", materials:DEFAULT_MATERIALS, providers:DEFAULT_PROVIDERS, records:DEFAULT_RECORDS() });
+      await cargarDesdeSheets({ initial:true });
+      setToast({ type:"success", text:"Catálogo y datos históricos cargados a Google Sheets." });
+    }catch(e){
+      setToast({ type:"error", text:`No se pudo migrar: ${e.message}` });
+    }
+    setMigrating(false);
+  };
+
+  const stats = useMemo(() => {
+    const totalKg = records.reduce((s,r)=>s+Number(r.peso),0);
+    const totalValor = records.reduce((s,r)=>s+Number(r.peso)*r.precioKg,0);
+    const pendientes = records.filter(r=>!r.pagado);
+    const montoPendiente = pendientes.reduce((s,r)=>s+Number(r.peso)*r.precioKg,0);
+    const porMaterial = materials.map(m => {
+      const recs = records.filter(r=>r.materialId===m.id);
+      const kgTotal = recs.reduce((s,r)=>s+Number(r.peso),0);
+      return { ...m, kgTotal, count:recs.length };
+    }).sort((a,b)=>b.kgTotal-a.kgTotal);
+    const maxKg = Math.max(1, ...porMaterial.map(m=>m.kgTotal));
+    const proveedoresCount = new Set(records.map(r=>r.providerId)).size;
+    return { totalKg, totalValor, registros:records.length, pendientesCount:pendientes.length, montoPendiente, porMaterial, maxKg, proveedoresCount };
+  }, [records, materials]);
+
+  if(loadStatus === "sin-configurar") return <SetupNotice />;
+  if(loadStatus === "cargando") return <LoadingScreen />;
+  if(loadStatus === "error") return <ErrorScreen message={loadError} onRetry={()=>cargarDesdeSheets({ initial:true })} />;
+
+  const sheetVacio = materials.length===0 && providers.length===0 && records.length===0;
+  if(sheetVacio && !skipEmpty){
+    return <EmptyDataScreen migrating={migrating} onMigrate={cargarDatosIniciales} onSkip={()=>setSkipEmpty(true)} />;
+  }
+
+  return (
+    <div className="min-h-screen pb-24">
+      <Header />
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 -mt-6 sm:-mt-10 relative z-10">
+        <div className="flex justify-end mb-3">
+          <button onClick={()=>setBackupOpen(true)} className="inline-flex items-center gap-1.5 text-xs font-600 px-3 py-2 rounded-xl border bg-white transition hover:bg-[color:var(--bg)]" style={{ borderColor:"var(--border)", color:"var(--primary-dark)" }}>
+            💾 Copia de seguridad
+          </button>
+        </div>
+        <StatsPanel stats={stats} />
+        <div className="grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-5 mt-5">
+          <RecepcionForm materials={materials} providers={providers} onSubmit={addRecord} onCreateProvider={createProvider} />
+          <HistoryPanel records={records} providersById={providersById} materials={materials} onTogglePagado={togglePagado} onExport={()=>setExportOpen(true)} onReload={()=>cargarDesdeSheets({ initial:false })} refreshing={refreshing} updatingIds={updatingIds} />
+        </div>
+      </main>
+      {toast && <Toast toast={toast} />}
+      {exportOpen && <ExportModal records={records} stats={stats} providersById={providersById} materials={materials} onClose={()=>setExportOpen(false)} />}
+      {backupOpen && <BackupModal providers={providers} records={records} materials={materials} onClose={()=>setBackupOpen(false)} />}
+    </div>
+  );
+}
+
+class ErrorBoundary extends React.Component {
+  constructor(props){ super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error){ return { error }; }
+  componentDidCatch(error, info){ console.error("Error en la aplicación:", error, info); }
+  render(){
+    if(this.state.error){
+      return (
+        <div className="min-h-screen flex items-center justify-center p-6" style={{ background:"var(--bg)" }}>
+          <div className="bg-white rounded-2xl border p-6 max-w-md text-center shadow-sm" style={{ borderColor:"var(--border)" }}>
+            <p className="text-3xl mb-2">⚠️</p>
+            <h2 className="font-display font-700 text-lg mb-1" style={{ color:"var(--ink)" }}>Algo falló al mostrar la aplicación</h2>
+            <p className="text-sm mb-4" style={{ color:"var(--ink-muted)" }}>Tus datos están seguros en Google Sheets. Intenta recargar la página; si el problema sigue, cuéntame exactamente qué hiciste antes de que apareciera esto.</p>
+            <button onClick={()=>window.location.reload()} className="rounded-xl px-4 py-2.5 text-sm font-600 text-white" style={{ background:"var(--primary)" }}>Recargar</button>
+            <pre className="text-[10px] text-left mt-4 p-2 rounded-lg overflow-auto max-h-32" style={{ background:"var(--bg)", color:"var(--ink-muted)" }}>{String(this.state.error?.message||this.state.error)}</pre>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<ErrorBoundary><App /></ErrorBoundary>);
+</script>
+</body>
+</html>
